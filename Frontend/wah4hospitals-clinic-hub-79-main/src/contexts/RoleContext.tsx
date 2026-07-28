@@ -84,7 +84,6 @@ const roleAccessConfig: Record<UserRole, string[]> = {
     'discharge',
     'inventory',
     'compliance',
-    'statistics',
     'billing',
     'settings',
   ],

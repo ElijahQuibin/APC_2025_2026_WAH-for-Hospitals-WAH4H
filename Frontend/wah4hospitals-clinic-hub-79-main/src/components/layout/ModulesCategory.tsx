@@ -18,7 +18,6 @@ import {
   UserX, 
   Package, 
   Shield, 
-  BarChart3, 
   Building2, 
   Settings,
   Users,
@@ -71,12 +70,6 @@ const ModulesCategory = () => {
         { id: 'patients', name: 'Patients', icon: <UserPlus className="w-4 h-4" />, description: "Patient registration and info" },
         { id: 'monitoring', name: 'Monitoring', icon: <Activity className="w-4 h-4" />, description: "Patient vitals and status" },
         { id: 'discharge', name: 'Discharge', icon: <UserX className="w-4 h-4" />, description: "Patient discharge process" }
-      ]
-    },
-    {
-      name: "Administration",
-      modules: [
-        { id: 'statistics', name: 'Statistics', icon: <BarChart3 className="w-4 h-4" />, description: "Hospital performance" }
       ]
     },
     {

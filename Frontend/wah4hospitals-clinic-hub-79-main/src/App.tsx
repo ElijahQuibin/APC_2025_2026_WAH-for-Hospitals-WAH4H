@@ -37,7 +37,6 @@ import {
   UserX,
   Package,
   Shield,
-  BarChart3,
   Building2,
   Settings as SettingsIcon,
   Receipt,
@@ -58,7 +57,6 @@ const tabs = [
   { id: 'discharge', name: 'Discharge', icon: <UserX className="w-4 h-4" /> },
   { id: 'inventory', name: 'Inventory', icon: <Package className="w-4 h-4" /> },
   { id: 'compliance', name: 'Compliance', icon: <Shield className="w-4 h-4" /> },
-  { id: 'statistics', name: 'Statistics', icon: <BarChart3 className="w-4 h-4" /> },
   { id: 'billing', name: 'Billing', icon: <Receipt className="w-4 h-4" /> },
   { id: 'settings', name: 'Settings', icon: <SettingsIcon className="w-4 h-4" /> }
 ];
@@ -93,8 +91,6 @@ const AppContent = () => {
       setActiveTab('inventory');
     } else if (path === '/compliance') {
       setActiveTab('compliance');
-    } else if (path === '/statistics') {
-      setActiveTab('statistics');
     } else if (path === '/billing') {
       setActiveTab('billing');
     } else if (path === '/settings' || path === '/control-panel') {
@@ -122,8 +118,6 @@ const AppContent = () => {
         return <Inventory />;
       case 'compliance':
         return <Compliance />;
-      case 'statistics':
-        return <div className="p-6">Statistics Module (Coming Soon)</div>;
       case 'billing':
         return <Billing />;
       case 'settings':
@@ -170,7 +164,6 @@ const App = () => (
                 <Route path="/discharge" element={<AppContent />} />
                 <Route path="/inventory" element={<AppContent />} />
                 <Route path="/compliance" element={<AppContent />} />
-                <Route path="/statistics" element={<AppContent />} />
                 <Route path="/billing" element={<AppContent />} />
                 <Route path="/settings" element={<AppContent />} />
                 <Route path="/control-panel" element={<AppContent />} />
