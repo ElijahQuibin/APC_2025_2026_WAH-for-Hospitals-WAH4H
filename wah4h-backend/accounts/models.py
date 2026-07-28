@@ -1,7 +1,77 @@
 # accounts/models.py
-from django.db import models
-from django.contrib.auth.models import AbstractBaseUser, PermissionsMixin, UserManager
-from core.models import TimeStampedModel, FHIRResourceModel
+import uuid
+
+from django.contrib.auth.models import AbstractBaseUser, BaseUserManager, PermissionsMixin
+from django.db import models, transaction
+
+from core.models import FHIRResourceModel, TimeStampedModel
+
+
+class CustomUserManager(BaseUserManager):
+    """
+    User manager that satisfies the practitioner_id PK constraint.
+
+    createsuperuser / create_user without a practitioner will create one
+    automatically so local setup docs (manage.py createsuperuser) work.
+    """
+
+    def _create_practitioner(self, username, first_name, last_name, email=None):
+        identifier = f"USR-{uuid.uuid4().hex[:12].upper()}"
+        return Practitioner.objects.create(
+            identifier=identifier,
+            first_name=first_name,
+            last_name=last_name,
+            active=True,
+            status='active',
+            telecom=email or '',
+        )
+
+    @transaction.atomic
+    def create_user(self, username, email=None, password=None, **extra_fields):
+        if not username:
+            raise ValueError('The Username field must be set')
+
+        email = self.normalize_email(email) if email else None
+        practitioner = extra_fields.pop('practitioner', None)
+
+        first_name = extra_fields.get('first_name') or (
+            username.split('@')[0] if '@' in username else username
+        )
+        last_name = extra_fields.get('last_name') or 'User'
+        extra_fields['first_name'] = first_name
+        extra_fields['last_name'] = last_name
+        extra_fields.setdefault('status', 'active')
+
+        if practitioner is None:
+            practitioner = self._create_practitioner(
+                username, first_name, last_name, email
+            )
+
+        user = self.model(
+            username=username,
+            email=email,
+            practitioner=practitioner,
+            **extra_fields,
+        )
+        user.set_password(password)
+        user.save(using=self._db)
+        return user
+
+    def create_superuser(self, username, email=None, password=None, **extra_fields):
+        extra_fields.setdefault('is_staff', True)
+        extra_fields.setdefault('is_superuser', True)
+        extra_fields.setdefault('is_active', True)
+        extra_fields.setdefault('role', 'admin')
+        extra_fields.setdefault('status', 'active')
+        extra_fields.setdefault('first_name', 'System')
+        extra_fields.setdefault('last_name', 'Administrator')
+
+        if extra_fields.get('is_staff') is not True:
+            raise ValueError('Superuser must have is_staff=True.')
+        if extra_fields.get('is_superuser') is not True:
+            raise ValueError('Superuser must have is_superuser=True.')
+
+        return self.create_user(username, email, password, **extra_fields)
 
 class Organization(FHIRResourceModel):
     organization_id = models.AutoField(primary_key=True)
@@ -202,7 +272,7 @@ class User(AbstractBaseUser, PermissionsMixin, TimeStampedModel):
     - Inherits from AbstractBaseUser for Django authentication (check_password, set_password, etc.)
     - Inherits from PermissionsMixin for Django permission system
     - practitioner is the primary key (enforces 1:1 relationship)
-    - Uses standard UserManager for authentication
+    - Uses CustomUserManager (auto-creates Practitioner when needed)
     
     Context: Philippine LGU Hospital System
     - Prevents credential sharing (one practitioner = one user)
@@ -229,8 +299,7 @@ class User(AbstractBaseUser, PermissionsMixin, TimeStampedModel):
     is_active = models.BooleanField(default=True)
     is_superuser = models.BooleanField(default=False)
 
-    # Attach standard UserManager for Django authentication
-    objects = UserManager()
+    objects = CustomUserManager()
     
     # ---------------------------------------------------------
     # DJANGO AUTH CONFIGURATION

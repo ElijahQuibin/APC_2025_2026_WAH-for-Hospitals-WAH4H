@@ -6,6 +6,7 @@ import { useAuth } from './AuthContext';
  * Source: wah4h-backend/accounts/models.py
  */
 export type UserRole =
+  | 'admin'           // System admin - app administration and user management
   | 'doctor'          // Doctor - Clinical care and medical decisions
   | 'nurse'           // Nurse - Patient care and monitoring
   | 'lab_technician'  // Lab Technician - Laboratory tests and results
@@ -42,6 +43,7 @@ export const useRole = () => {
  * Role hierarchy mapping for permission levels
  */
 const roleHierarchy: Record<UserRole, RoleLevel> = {
+  admin: RoleLevel.SUPPORT,
   doctor: RoleLevel.CLINICAL,
   nurse: RoleLevel.CLINICAL,
   lab_technician: RoleLevel.TECHNICAL,
@@ -70,6 +72,23 @@ const roleHierarchy: Record<UserRole, RoleLevel> = {
  * Settings: User preferences and system configuration
  */
 const roleAccessConfig: Record<UserRole, string[]> = {
+  // ========== ADMIN: System administration ==========
+  // Admins can access all app modules, including system/user management.
+  admin: [
+    'dashboard',
+    'patients',
+    'admission',
+    'pharmacy',
+    'laboratory',
+    'monitoring',
+    'discharge',
+    'inventory',
+    'compliance',
+    'statistics',
+    'billing',
+    'settings',
+  ],
+
   // ========== DOCTOR: Clinical care and medical decisions ==========
   // Doctors need access to patient care, diagnostics, treatment, and discharge
   doctor: [
@@ -134,6 +153,7 @@ const roleAccessConfig: Record<UserRole, string[]> = {
  * Defines what types of data each role can create, edit, or delete
  */
 const modificationPermissions: Record<UserRole, string[]> = {
+  admin: [],
 
   doctor: [
     'patient-records',

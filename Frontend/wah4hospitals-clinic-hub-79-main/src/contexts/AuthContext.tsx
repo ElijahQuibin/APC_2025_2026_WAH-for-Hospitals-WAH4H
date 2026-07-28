@@ -77,6 +77,17 @@ interface AuthContextType {
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
+const getStoredUser = (): User | null => {
+  try {
+    const raw = localStorage.getItem('currentUser');
+    return raw ? (JSON.parse(raw) as User) : null;
+  } catch (err) {
+    // If parsing fails, clear inconsistent storage before the app boots.
+    localStorage.removeItem('currentUser');
+    return null;
+  }
+};
+
 export const useAuth = () => {
   const ctx = useContext(AuthContext);
   if (!ctx) throw new Error('useAuth must be used within AuthProvider');
@@ -84,24 +95,10 @@ export const useAuth = () => {
 };
 
 export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
-  const [user, setUser] = useState<User | null>(null);
+  const [user, setUser] = useState<User | null>(() => getStoredUser());
   const [isLoading, setIsLoading] = useState(false);
   const { toast } = useToast();
   const idleTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-
-  // Restore user from localStorage on mount so SPA refresh doesn't log out
-  useEffect(() => {
-    try {
-      const raw = localStorage.getItem('currentUser');
-      if (raw) {
-        const parsed: User = JSON.parse(raw);
-        setUser(parsed);
-      }
-    } catch (err) {
-      // If parsing fails, clear inconsistent storage
-      localStorage.removeItem('currentUser');
-    }
-  }, []);
 
   // =========================================================================
   // IDLE TIMEOUT — Auto-logout after 15 minutes of inactivity

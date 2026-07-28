@@ -45,6 +45,60 @@ class PractitionerSerializer(serializers.ModelSerializer):
             'telecom',
         ]
 
+
+class UserAdminListSerializer(serializers.ModelSerializer):
+    """Serializer for the frontend user-management table."""
+
+    id = serializers.IntegerField(source='pk', read_only=True)
+    name = serializers.SerializerMethodField()
+    last_login = serializers.DateTimeField(read_only=True)
+
+    class Meta:
+        model = User
+        fields = [
+            'id',
+            'username',
+            'email',
+            'first_name',
+            'last_name',
+            'name',
+            'role',
+            'status',
+            'is_active',
+            'is_staff',
+            'is_superuser',
+            'last_login',
+        ]
+
+    def get_name(self, obj):
+        return f"{obj.first_name} {obj.last_name}".strip() or obj.username
+
+
+class UserAdminUpdateSerializer(serializers.ModelSerializer):
+    """Restrictive serializer for staff-managed user updates."""
+
+    VALID_ROLES = (
+        'doctor',
+        'nurse',
+        'lab_technician',
+        'pharmacist',
+        'billing_clerk',
+        'admin',
+    )
+
+    class Meta:
+        model = User
+        fields = ['role', 'status', 'is_active', 'is_staff']
+
+    def validate_role(self, value):
+        if value is None or value == '':
+            raise serializers.ValidationError('Role is required.')
+        if value not in self.VALID_ROLES:
+            raise serializers.ValidationError(
+                f'Invalid role. Choose one of: {", ".join(self.VALID_ROLES)}.'
+            )
+        return value
+
 # ============================================================================
 # UTILITY FUNCTIONS
 # ============================================================================

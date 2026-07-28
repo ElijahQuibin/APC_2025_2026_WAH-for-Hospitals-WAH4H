@@ -27,6 +27,7 @@ from django.core.cache import cache
 from django.conf import settings
 from django.db import transaction
 from django.contrib.auth import get_user_model
+from django.db.models import Q
 import json
 from datetime import date
 from .serializers import PractitionerSerializer
@@ -45,8 +46,12 @@ from .serializers import (
     ChangePasswordSerializer,
     ChangePasswordInitiateSerializer,
     ChangePasswordVerifySerializer,
+    UserAdminListSerializer,
+    UserAdminUpdateSerializer,
     generate_otp
 )
+
+User = get_user_model()
 
 
 # ============================================================================
@@ -88,6 +93,24 @@ def error_response(message, errors=None, http_status=status.HTTP_400_BAD_REQUEST
         'message': message,
         'errors': errors or {}
     }, status=http_status)
+
+
+def require_staff_user(request):
+    """Return an error response if the caller is not staff/superuser."""
+    user = request.user
+    if not user.is_authenticated:
+        return error_response(
+            message='Authentication credentials were not provided.',
+            errors={'detail': 'Authentication required.'},
+            http_status=status.HTTP_401_UNAUTHORIZED,
+        )
+    if not (user.is_staff or user.is_superuser):
+        return error_response(
+            message='You do not have permission to manage users.',
+            errors={'detail': 'Staff access required.'},
+            http_status=status.HTTP_403_FORBIDDEN,
+        )
+    return None
 
 
 # ============================================================================
@@ -841,3 +864,82 @@ class PractitionerListAPIView(generics.ListAPIView):
             # In our model, User has a O2O to Practitioner with primary_key=True
             queryset = queryset.filter(user__role__iexact=role)
         return queryset
+
+
+class UserManagementListAPIView(APIView):
+    """
+    GET /api/accounts/users/
+    List users for the frontend admin user-management screen.
+    """
+
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        permission_error = require_staff_user(request)
+        if permission_error:
+            return permission_error
+
+        queryset = User.objects.select_related('practitioner').order_by(
+            'last_name', 'first_name', 'email'
+        )
+
+        search = request.query_params.get('search', '').strip()
+        role = request.query_params.get('role', '').strip()
+
+        if search:
+            queryset = queryset.filter(
+                Q(email__icontains=search)
+                | Q(username__icontains=search)
+                | Q(first_name__icontains=search)
+                | Q(last_name__icontains=search)
+            )
+
+        if role:
+            queryset = queryset.filter(role__iexact=role)
+
+        serializer = UserAdminListSerializer(queryset, many=True)
+        return success_response(
+            message='Users retrieved successfully.',
+            data={'users': serializer.data},
+        )
+
+
+class UserManagementDetailAPIView(APIView):
+    """
+    PATCH /api/accounts/users/<int:user_id>/
+    Update a user's role/status from the frontend admin page.
+    """
+
+    permission_classes = [IsAuthenticated]
+
+    def patch(self, request, user_id):
+        permission_error = require_staff_user(request)
+        if permission_error:
+            return permission_error
+
+        try:
+            user = User.objects.get(pk=user_id)
+        except User.DoesNotExist:
+            return error_response(
+                message='User not found.',
+                errors={'detail': 'No user matches the provided ID.'},
+                http_status=status.HTTP_404_NOT_FOUND,
+            )
+
+        serializer = UserAdminUpdateSerializer(
+            user,
+            data=request.data,
+            partial=True,
+        )
+        if not serializer.is_valid():
+            return error_response(
+                message='Unable to update user.',
+                errors=serializer.errors,
+                http_status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        updated_user = serializer.save()
+        return success_response(
+            message='User updated successfully.',
+            data={'user': UserAdminListSerializer(updated_user).data},
+        )

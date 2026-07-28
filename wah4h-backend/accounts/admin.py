@@ -7,7 +7,9 @@ Special Considerations:
 - Enhanced search capabilities for LGU hospital staff
 """
 
+from django import forms
 from django.contrib import admin
+from django.contrib.auth.forms import ReadOnlyPasswordHashField
 from .models import (
     Organization,
     Location,
@@ -17,6 +19,146 @@ from .models import (
     Endpoint,
     HealthcareService
 )
+
+
+ROLE_HELP = (
+    'Frontend modules require one of: doctor, nurse, lab_technician, '
+    'pharmacist, billing_clerk.'
+)
+
+
+class UserCreationForm(forms.ModelForm):
+    """Admin form for creating users with hashed passwords."""
+
+    password1 = forms.CharField(label='Password', widget=forms.PasswordInput)
+    password2 = forms.CharField(
+        label='Confirm password',
+        widget=forms.PasswordInput,
+    )
+
+    class Meta:
+        model = User
+        fields = (
+            'username',
+            'email',
+            'first_name',
+            'last_name',
+            'role',
+            'status',
+            'is_staff',
+            'is_active',
+            'is_superuser',
+            'practitioner',
+        )
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.fields['practitioner'].required = False
+        self.fields['practitioner'].help_text = (
+            'Optional. Leave blank to auto-create a Practitioner for this user.'
+        )
+        self.fields['status'].initial = 'active'
+        self.fields['role'].initial = 'doctor'
+        self.fields['role'].help_text = ROLE_HELP
+
+    def clean_password2(self):
+        password1 = self.cleaned_data.get('password1')
+        password2 = self.cleaned_data.get('password2')
+        if password1 and password2 and password1 != password2:
+            raise forms.ValidationError("The two password fields didn't match.")
+        return password2
+
+    def save(self, commit=True):
+        extras = {
+            'first_name': self.cleaned_data['first_name'],
+            'last_name': self.cleaned_data['last_name'],
+            'role': self.cleaned_data.get('role') or 'doctor',
+            'status': self.cleaned_data.get('status') or 'active',
+            'is_staff': self.cleaned_data.get('is_staff', False),
+            'is_active': self.cleaned_data.get('is_active', True),
+            'is_superuser': self.cleaned_data.get('is_superuser', False),
+        }
+        practitioner = self.cleaned_data.get('practitioner')
+        if practitioner is not None:
+            extras['practitioner'] = practitioner
+
+        # create_user hashes the password and creates a Practitioner when needed
+        user = User.objects.create_user(
+            username=self.cleaned_data['username'],
+            email=self.cleaned_data.get('email'),
+            password=self.cleaned_data['password1'],
+            **extras,
+        )
+        # ModelForm normally sets this when save(commit=False) is used.
+        # Admin always calls form.save_m2m() afterward.
+        self.save_m2m = lambda: None
+        return user
+
+
+class UserChangeForm(forms.ModelForm):
+    """Admin form for editing users; optional password reset."""
+
+    password = ReadOnlyPasswordHashField(
+        label='Password',
+        help_text=(
+            'Raw passwords are not stored, so there is no way to see this '
+            "user's password. Set a new password below to change it."
+        ),
+    )
+    password1 = forms.CharField(
+        label='New password',
+        required=False,
+        widget=forms.PasswordInput,
+        help_text='Leave blank to keep the current password.',
+    )
+    password2 = forms.CharField(
+        label='Confirm new password',
+        required=False,
+        widget=forms.PasswordInput,
+    )
+
+    class Meta:
+        model = User
+        fields = (
+            'username',
+            'email',
+            'password',
+            'first_name',
+            'last_name',
+            'role',
+            'status',
+            'is_staff',
+            'is_active',
+            'is_superuser',
+            'practitioner',
+        )
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.fields['role'].help_text = ROLE_HELP
+
+    def clean_password(self):
+        # Return the initial value regardless of what the user provides
+        return self.initial.get('password')
+
+    def clean_password2(self):
+        password1 = self.cleaned_data.get('password1')
+        password2 = self.cleaned_data.get('password2')
+        if password1 or password2:
+            if password1 != password2:
+                raise forms.ValidationError(
+                    "The two password fields didn't match."
+                )
+        return password2
+
+    def save(self, commit=True):
+        user = super().save(commit=False)
+        password1 = self.cleaned_data.get('password1')
+        if password1:
+            user.set_password(password1)
+        if commit:
+            user.save()
+        return user
 
 
 @admin.register(Organization)
@@ -333,20 +475,24 @@ class PractitionerRoleAdmin(admin.ModelAdmin):
 class UserAdmin(admin.ModelAdmin):
     """
     Admin interface for User management.
-    
+
     Special Handling:
     - User.practitioner is a OneToOneField used as Primary Key
-    - Cannot create User without existing Practitioner
-    - Must select existing Practitioner when creating User in admin
+    - Practitioner is optional on create (auto-created when blank)
+    - Passwords are hashed via set_password / create_user
     """
-    
+
+    add_form = UserCreationForm
+    form = UserChangeForm
+
     list_display = (
         'practitioner',
         'username',
         'email',
         'role',
         'status',
-        'last_login'
+        'is_staff',
+        'last_login',
     )
     search_fields = (
         'username',
@@ -354,24 +500,22 @@ class UserAdmin(admin.ModelAdmin):
         'first_name',
         'last_name',
         'practitioner__first_name',
-        'practitioner__last_name'
+        'practitioner__last_name',
     )
-    list_filter = ('role', 'status')
+    list_filter = ('role', 'status', 'is_staff', 'is_active')
     readonly_fields = ('last_login', 'created_at', 'updated_at')
-    
+
     fieldsets = (
         ('Practitioner Link', {
             'fields': ('practitioner',),
-            'description': (
-                'Select an existing Practitioner. Each Practitioner can only have one User account. '
-                'This prevents credential sharing in shared device environments.'
-            )
         }),
         ('Account Information', {
             'fields': (
                 'username',
                 'email',
-                'password_hash',
+                'password',
+                'password1',
+                'password2',
             )
         }),
         ('Personal Information', {
@@ -384,26 +528,87 @@ class UserAdmin(admin.ModelAdmin):
             'fields': (
                 'role',
                 'status',
+                'is_active',
+                'is_staff',
+                'is_superuser',
             )
         }),
         ('Metadata', {
             'fields': (
                 'last_login',
                 'created_at',
-                'updated_at'
+                'updated_at',
             ),
-            'classes': ('collapse',)
-        })
+            'classes': ('collapse',),
+        }),
     )
-    
+
+    add_fieldsets = (
+        ('Practitioner Link', {
+            'fields': ('practitioner',),
+            'description': (
+                'Optional. Leave blank to auto-create a Practitioner. '
+                'Each Practitioner can only have one User account.'
+            ),
+        }),
+        ('Account Information', {
+            'fields': (
+                'username',
+                'email',
+                'password1',
+                'password2',
+            )
+        }),
+        ('Personal Information', {
+            'fields': (
+                'first_name',
+                'last_name',
+            )
+        }),
+        ('Permissions & Status', {
+            'fields': (
+                'role',
+                'status',
+                'is_active',
+                'is_staff',
+                'is_superuser',
+            ),
+            'description': ROLE_HELP,
+        }),
+    )
+
+    def get_form(self, request, obj=None, **kwargs):
+        defaults = {'form': self.add_form if obj is None else self.form}
+        defaults.update(kwargs)
+        return super().get_form(request, obj, **defaults)
+
+    def get_fieldsets(self, request, obj=None):
+        if obj is None:
+            return self.add_fieldsets
+        return super().get_fieldsets(request, obj)
+
     def get_readonly_fields(self, request, obj=None):
-        """
-        Make practitioner field readonly when editing existing User.
-        This prevents changing the User-Practitioner link after creation.
-        """
-        if obj:  # Editing existing User
+        if obj:  # Editing existing User — lock practitioner link
             return self.readonly_fields + ('practitioner',)
         return self.readonly_fields
+
+    def save_form(self, request, form, change):
+        # create_user already persists the row on add
+        if not change:
+            return form.save(commit=True)
+        return super().save_form(request, form, change)
+
+    def save_model(self, request, obj, form, change):
+        if change:
+            form.save(commit=True)
+        # On add, object was already saved in save_form via create_user
+
+    def save_related(self, request, form, formsets, change):
+        # Creation form bypasses ModelForm.save(commit=False), so ensure
+        # save_m2m exists before the default admin related-save path runs.
+        if not hasattr(form, 'save_m2m'):
+            form.save_m2m = lambda: None
+        super().save_related(request, form, formsets, change)
 
 
 @admin.register(Endpoint)
